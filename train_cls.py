@@ -11,22 +11,29 @@ import sys
 import provider
 import importlib
 import shutil
+import psutil
+from thop import profile  
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
-"""
-需要配置的参数：
---model pointnet2_cls_msg 
---normal 
---log_dir pointnet2_cls_msg
-"""
 
+def print_memory_usage(device='cuda'):
+    """打印当前内存使用情况"""
+    if device == 'cuda' and torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1024**2
+        reserved = torch.cuda.memory_reserved() / 1024**2
+        max_allocated = torch.cuda.max_memory_allocated() / 1024**2
+        return f"GPU Memory: Alloc={allocated:.2f}MB, Reserved={reserved:.2f}MB, Max_Alloc={max_allocated:.2f}MB"
+    else:
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        return f"CPU Memory: RSS={mem_info.rss / 1024**2:.2f}MB"
 
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('PointNet')
-    parser.add_argument('--batch_size', type=int, default=8, help='batch size in training [default: 24]')
+    parser.add_argument('--batch_size', type=int, default=72, help='batch size in training [default: 24]')
     parser.add_argument('--model', default='pointnet2_cls_ssg', help='model name [default: pointnet_cls]')
     parser.add_argument('--epoch', default=200, type=int, help='number of epoch in training [default: 200]')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate in training [default: 0.001]')
@@ -38,7 +45,6 @@ def parse_args():
     parser.add_argument('--normal', action='store_true', default=False,
                         help='Whether to use normal information [default: False]')
     return parser.parse_args()
-
 
 def test(model, loader, num_class=40):
     mean_correct = []
@@ -62,7 +68,6 @@ def test(model, loader, num_class=40):
     instance_acc = np.mean(mean_correct)
     return instance_acc, class_acc
 
-
 def main(args):
     def log_string(str):
         logger.info(str)
@@ -72,7 +77,6 @@ def main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     '''CREATE DIR'''
-    # 创建文件夹
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     experiment_dir = Path('./log/')
     experiment_dir.mkdir(exist_ok=True)
@@ -89,7 +93,6 @@ def main(args):
     log_dir.mkdir(exist_ok=True)
 
     '''LOG'''
-    args = parse_args()
     logger = logging.getLogger("Model")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -102,7 +105,7 @@ def main(args):
 
     '''DATA LOADING'''
     log_string('Load dataset ...')
-    DATA_PATH = 'data/modelnet40_normal_resampled/'
+    DATA_PATH = 'I:/BaiduNetdiskDownload/data/modelnet40_normal_resampled/'
 
     TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train',
                                        normal_channel=args.normal)
@@ -119,6 +122,31 @@ def main(args):
     shutil.copy('./models/pointnet_util.py', str(experiment_dir))
 
     classifier = MODEL.get_model(num_class, normal_channel=args.normal).cuda()
+
+    '''GFLOPS计算'''
+    def calculate_gflops():
+        try:
+            # 准备虚拟输入（注意维度顺序）
+            input_channels = 6 if args.normal else 3
+            dummy_input = torch.randn(
+                1,  # 使用batch_size=1计算单样本FLOPs
+                input_channels,
+                args.num_point
+            ).cuda()
+            
+            # 计算FLOPs
+            flops, params = profile(classifier, inputs=(dummy_input,))
+            return flops / 1e9  # 转换为GFLOPS
+        except Exception as e:
+            log_string(f"FLOPs计算错误: {str(e)}")
+            return 0.0
+
+    # 记录GFLOPS信息
+    log_string('-'*50)
+    gflops = calculate_gflops()
+    log_string(f"Model GFLOPS: {gflops:.2f}G (input_shape=[1, {6 if args.normal else 3}, {args.num_point}])")
+    log_string('-'*50)
+
     criterion = MODEL.get_loss().cuda()
 
     try:
@@ -151,17 +179,16 @@ def main(args):
     '''TRANING'''
     logger.info('Start training...')
     for epoch in range(start_epoch, args.epoch):
+        torch.cuda.reset_peak_memory_stats()
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        # optimizer.step()通常用在每个mini-batch之中，而scheduler.step()通常用在epoch里面,
-        # 但也不是绝对的，可以根据具体的需求来做。
-        # 只有用了optimizer.step()，模型才会更新，而scheduler.step()是对lr进行调整。
-        scheduler.step()
+        
+        # 训练阶段
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
             points = points.data.numpy()
-            points = provider.random_point_dropout(points)  # 进行数据增强
-            points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :, 0:3])  # 在数值上调大或调小，设置一个范围
-            points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])  # 增加随机抖动，使测试结果更好
+            points = provider.random_point_dropout(points)
+            points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :, 0:3])
+            points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])
             points = torch.Tensor(points)
             target = target[:, 0]
 
@@ -171,14 +198,22 @@ def main(args):
 
             classifier = classifier.train()
             pred, trans_feat = classifier(points)
-            loss = criterion(pred, target.long(), trans_feat)  # 计算损失
+            loss = criterion(pred, target.long(), trans_feat)
             pred_choice = pred.data.max(1)[1]
             correct = pred_choice.eq(target.long().data).cpu().sum()
             mean_correct.append(correct.item() / float(points.size()[0]))
-            loss.backward()  # 反向传播
-            optimizer.step()  # 最好的测试结果
+            loss.backward()
+            optimizer.step()
             global_step += 1
 
+        # 内存监控日志
+        log_string('-'*50)
+        log_string(f'Epoch {epoch+1} Memory Usage:')
+        log_string(print_memory_usage('cuda'))
+        log_string(print_memory_usage('cpu'))
+        log_string('-'*50)
+
+        # 测试阶段
         train_instance_acc = np.mean(mean_correct)
         log_string('Train Instance Accuracy: %f' % train_instance_acc)
 
@@ -209,7 +244,6 @@ def main(args):
             global_epoch += 1
 
     logger.info('End of training...')
-
 
 if __name__ == '__main__':
     args = parse_args()
