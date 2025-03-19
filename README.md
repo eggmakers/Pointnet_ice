@@ -8,3 +8,6 @@ conda activate pointnet2
 
 如果你希望更新你有的环境，那么你可以使用以下命令
 conda env update --file environment.yml --prune
+
+
+joseph096 测试一下哈哈哈哈
