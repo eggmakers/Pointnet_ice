@@ -7,10 +7,12 @@ from models.pointnet import PointNetEncoder, feature_transform_reguliarzer
 
 
 class get_model(nn.Module):
-    def __init__(self, num_class, with_rgb=True):
+    def __init__(self, num_class, with_rgb=True, with_normalized_xyz=True):
         super(get_model, self).__init__()
         if with_rgb:
             channel = 6
+            if with_normalized_xyz:
+                channel = 9
         else:
             channel = 3
         self.k = num_class
