@@ -105,7 +105,8 @@ class PointNetEncoder(nn.Module):
         trans = self.stn(x)
         x = x.transpose(2, 1)
         if D >3 :
-            x, feature = x.split(3,dim=2)
+            # x, feature = x.split(3,dim=2)
+            x, feature = x.split([3,D-3],dim=2)
         x = torch.bmm(x, trans)
         if D > 3:
             x = torch.cat([x,feature],dim=2)

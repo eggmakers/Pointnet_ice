@@ -33,7 +33,7 @@ for i,cat in enumerate(seg_classes.keys()):
 def parse_args():
     parser = argparse.ArgumentParser('Model')
     parser.add_argument('--model', type=str, default='pointnet_sem_seg', help='model name [default: pointnet_sem_seg]')
-    parser.add_argument('--batch_size', type=int, default=16, help='Batch Size during training [default: 16]')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch Size during training [default: 16]')
     parser.add_argument('--epoch',  default=128, type=int, help='Epoch to run [default: 128]')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='Initial learning rate [default: 0.001]')
     parser.add_argument('--gpu', type=str, default='0', help='GPU to use [default: GPU 0]')
@@ -46,6 +46,15 @@ def parse_args():
     parser.add_argument('--test_area', type=int, default=5, help='Which area to use for test, option: 1-6 [default: 5]')
 
     return parser.parse_args()
+
+def worker_init(worker_id):
+    np.random.seed(worker_id + int(time.time()))
+
+def bn_momentum_adjust_wrapper(momentum):
+    def _adjust(m):
+        if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
+            m.momentum = momentum
+    return _adjust
 
 def main(args):
     def log_string(str):
@@ -92,7 +101,15 @@ def main(args):
     TRAIN_DATASET = S3DISDataset(split='train', data_root=root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
     print("start loading test data ...")
     TEST_DATASET = S3DISDataset(split='test', data_root=root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
-    trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True, drop_last=True, worker_init_fn = lambda x: np.random.seed(x+int(time.time())))
+    trainDataLoader = torch.utils.data.DataLoader(
+        TRAIN_DATASET, 
+        batch_size=BATCH_SIZE, 
+        shuffle=True, 
+        num_workers=4, 
+        pin_memory=True, 
+        drop_last=True, 
+        worker_init_fn = worker_init  
+    )
     testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
     weights = torch.Tensor(TRAIN_DATASET.labelweights).cuda()
 
@@ -160,7 +177,7 @@ def main(args):
         if momentum < 0.01:
             momentum = 0.01
         print('BN momentum updated to: %f' % momentum)
-        classifier = classifier.apply(lambda x: bn_momentum_adjust(x,momentum))
+        classifier = classifier.apply(bn_momentum_adjust_wrapper(momentum))
         num_batches = len(trainDataLoader)
         total_correct = 0
         total_seen = 0
@@ -237,12 +254,12 @@ def main(args):
                     total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l) )
                     total_iou_deno_class[l] += np.sum(((pred_val == l) | (batch_label == l)) )
             labelweights = labelweights.astype(np.float32) / np.sum(labelweights.astype(np.float32))
-            mIoU = np.mean(np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=np.float) + 1e-6))
+            mIoU = np.mean(np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=np.float64) + 1e-6))
             log_string('eval mean loss: %f' % (loss_sum / float(num_batches)))
             log_string('eval point avg class IoU: %f' % (mIoU))
             log_string('eval point accuracy: %f' % (total_correct / float(total_seen)))
             log_string('eval point avg class acc: %f' % (
-                np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float) + 1e-6))))
+                np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float64) + 1e-6))))
             iou_per_class_str = '------- IoU --------\n'
             for l in range(NUM_CLASSES):
                 iou_per_class_str += 'class %s weight: %.3f, IoU: %.3f \n' % (
