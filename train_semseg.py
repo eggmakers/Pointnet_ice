@@ -113,12 +113,12 @@ def main(args):
         TRAIN_DATASET, 
         batch_size=BATCH_SIZE, 
         shuffle=True, 
-        num_workers=0, 
+        num_workers=4, 
         pin_memory=True, 
         drop_last=True, 
         worker_init_fn = worker_init  
     )
-    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True, drop_last=True)
+    testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True, drop_last=True)
     weights = torch.Tensor(TRAIN_DATASET.labelweights).cuda()
 
     log_string("The number of training data is: %d" % len(TRAIN_DATASET))

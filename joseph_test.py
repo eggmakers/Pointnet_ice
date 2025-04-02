@@ -1,55 +1,50 @@
-# """
-# # Description: This is a test file for the joseph.py file
-# #本文件用于测试以及检验pointnet++的所有函数的功能
-# """
-# import sys
-# import argparse
-
-# #创建一个新的解释器
-# parser =argparse.ArgumentParser()
-
-# #同样实现乘法操作
-# parser.add_argument('--a', type=int, default=1, help='First number')
-# parser.add_argument('--b', type=int, default=1, help='Second number')
-# parser.add_argument('method', type=str, help='Method')
-# parser.add_argument('verbose', action="store_true",  help='print verbose output')
-
-# #解析命令行
-# args=parser.parse_args()
+import os
 
 
-
-# print(args)
-
-
-
-import argparse
-from PIL import Image
-
-def main():
-    parser = argparse.ArgumentParser(description='图像缩放工具')
-    parser.add_argument('input', help='输入图像路径')
-    parser.add_argument('output', help='输出图像路径')
-    parser.add_argument('--size', required=True, type=int, nargs=2,
-                        metavar=('WIDTH', 'HEIGHT'), help='目标尺寸（宽 高）')
-    
-    args = parser.parse_args()
-    width, height = args.size
-
+def process_point_cloud_file(input_file_path, output_base_folder, input_folder):
     try:
-        # 打开并缩放图像
-        with Image.open(args.input) as img:
-            resized_img = img.resize(
-                (width, height),
-                resample=Image.Resampling.LANCZOS
-            )
-            resized_img.save(args.output)
-        print(f"图像已成功保存至：{args.output}")
-        
+        with open(input_file_path, 'r') as file:
+            lines = file.readlines()
+
+        output1_lines = []
+        output2_lines = []
+        output3_lines = []
+
+        for line in lines:
+            values = line.strip().split()
+            x, y, z, r, g, _ = map(float, values[:6])
+
+            output1_lines.append(f"{x} {y} {z}\n")
+            output2_lines.append(f"{x} {y} {z} {r} {r} {r}\n")
+            output3_lines.append(f"{x} {y} {z} {g} {g} {g}\n")
+
+        # 获取输入文件相对于输入文件夹的相对路径
+        rel_path = os.path.relpath(input_file_path, input_folder)
+
+        for i, output_lines in enumerate([output1_lines, output2_lines, output3_lines], start=1):
+            output_folder = os.path.join(output_base_folder, f'output{i}')
+            output_file_path = os.path.join(output_folder, rel_path)
+            # 创建输出文件所在的目录
+            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+            # 将处理后的数据写入输出文件
+            with open(output_file_path, 'w') as output_file:
+                output_file.writelines(output_lines)
+
     except FileNotFoundError:
-        print(f"错误：输入文件 {args.input} 不存在")
+        print(f"错误：未找到文件 {input_file_path}。")
     except Exception as e:
-        print(f"处理图像时发生错误：{str(e)}")
+        print(f"发生未知错误：{e}")
+
+
+def process_folder(input_folder):
+    output_base_folder = os.path.dirname(input_folder)
+    for root, dirs, files in os.walk(input_folder):
+        for file in files:
+            if file.endswith('.txt'):
+                file_path = os.path.join(root, file)
+                process_point_cloud_file(file_path, output_base_folder, input_folder)
+
 
 if __name__ == "__main__":
-    main()
+    input_folder = 'train'
+    process_folder(input_folder)
