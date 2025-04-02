@@ -1,2 +1,9 @@
 log/
 data/
+train/
+output1/
+output2/    
+output3/
+pycache/
+data_utils/__pycache__/
+models/__pycache__/
