@@ -2,6 +2,10 @@
 Author: Benny
 Date: Nov 2019
 """
+"""
+Modified by: Joseph
+Date: March 2025
+"""
 import argparse
 import os
 from data_utils.S3DISDataLoader import S3DISDataset
@@ -46,15 +50,19 @@ def parse_args():
     parser.add_argument('--test_area', type=int, default=5, help='Which area to use for test, option: 1-6 [default: 5]')
 
     return parser.parse_args()
+#创建了一个解释器，能够解释命令行参数，返回一个命名空间，里面包含了所有的参数
+#如果不传入参数，就会使用默认的参数，如果需要更改，更改方式为python train_semseg.py --参数名 参数值
 
 def worker_init(worker_id):
     np.random.seed(worker_id + int(time.time()))
+#设置随机种子
 
 def bn_momentum_adjust_wrapper(momentum):
     def _adjust(m):
         if isinstance(m, (torch.nn.BatchNorm2d, torch.nn.BatchNorm1d)):
             m.momentum = momentum
     return _adjust
+#设置bn层的momentum，momentum的作用是在训练过程中，对于每个batch的均值和方差进行更新，momentum越大，对于历史数据的影响越大
 
 def main(args):
     def log_string(str):
