@@ -22,3 +22,5 @@ for anno_path in anno_paths:
         collect_point_label(anno_path, os.path.join(output_folder, out_filename), 'numpy')
     except:
         print(anno_path, 'ERROR!!')
+
+print(os.path.abspath(__file__))

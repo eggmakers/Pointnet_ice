@@ -158,6 +158,52 @@ def sample_and_group_all(xyz, points):
     return new_xyz, new_points
 
 
+
+class MultiReflectanceAttention(nn.Module):
+    """多反射率通道注意力模块"""
+    def __init__(self, in_channel, ratio=4):
+        super().__init__()
+        # 反射率特征压缩
+        self.ref_compress = nn.Sequential(
+            nn.Conv1d(3, 1, 1),  # 三通道反射率压缩为单通道
+            nn.BatchNorm1d(1),
+            nn.ReLU()
+        )
+        
+        # 双路径注意力
+        self.ref_attn = nn.Sequential(
+            nn.Conv2d(1, in_channel//ratio, 1),
+            nn.BatchNorm2d(in_channel//ratio),
+            nn.ReLU(),
+            nn.Conv2d(in_channel//ratio, in_channel, 1)
+        )
+        self.geo_attn = nn.Sequential(
+            nn.Conv2d(3, in_channel//ratio, 1),
+            nn.BatchNorm2d(in_channel//ratio),
+            nn.ReLU(),
+            nn.Conv2d(in_channel//ratio, in_channel, 1)
+        )
+
+    def forward(self, grouped_xyz, grouped_rrr, features):
+        """
+        Input:
+            grouped_xyz: [B, 3, K, S] 坐标差
+            grouped_rrr: [B, 3, K, S] 三通道反射率
+            features:    [B, C, K, S] 原始特征
+        """
+        # 反射率压缩与差异计算
+        r_compressed = self.ref_compress(grouped_rrr.mean(dim=2))  # [B, 1, S]
+        r_diff = torch.abs(r_compressed.unsqueeze(2) - r_compressed.unsqueeze(3))  # [B, 1, K, S]
+        
+        # 注意力权重生成
+        geo_weights = self.geo_attn(grouped_xyz).sigmoid()  # 几何权重
+        ref_weights = self.ref_attn(r_diff).sigmoid()       # 反射率权重
+        
+        # 特征增强
+        return features * (geo_weights + ref_weights)  # [B, C, K, S]
+
+
+
 class PointNetSetAbstraction(nn.Module):
     def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
         super(PointNetSetAbstraction, self).__init__()
@@ -203,8 +249,9 @@ class PointNetSetAbstraction(nn.Module):
 
 
 class PointNetSetAbstractionMsg(nn.Module):
-    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list):
+    def __init__(self, npoint, radius_list, nsample_list, in_channel, mlp_list, use_multi_ref_attn=False):
         super(PointNetSetAbstractionMsg, self).__init__()
+        self.use_multi_ref_attn = use_multi_ref_attn
         self.npoint = npoint
         self.radius_list = radius_list
         self.nsample_list = nsample_list
@@ -220,6 +267,10 @@ class PointNetSetAbstractionMsg(nn.Module):
                 last_channel = out_channel
             self.conv_blocks.append(convs)
             self.bn_blocks.append(bns)
+        if use_multi_ref_attn:
+            self.attn_blocks = nn.ModuleList([
+                MultiReflectanceAttention(mlp[-1][-1]) for mlp in mlp_list
+            ])
 
     def forward(self, xyz, points):
         """
@@ -248,7 +299,15 @@ class PointNetSetAbstractionMsg(nn.Module):
                 grouped_points = torch.cat([grouped_points, grouped_xyz], dim=-1)
             else:
                 grouped_points = grouped_xyz
-
+            # 分组操作代码(上)
+            grouped_xyz = grouped_points[:, :3, :, :]            # [B, 3, K, S]
+            grouped_rrr = grouped_points[:, 3:6, :, :]           # [B, 3, K, S] 三通道反射率
+            if self.use_multi_ref_attn:
+                grouped_points = self.attn_blocks[i](
+                    grouped_xyz - new_xyz.view(B, S, 1, 3).permute(0,3,2,1), # 坐标差
+                    grouped_rrr,
+                    grouped_points
+                )
             grouped_points = grouped_points.permute(0, 3, 2, 1)  # [B, D, K, S]
             for j in range(len(self.conv_blocks[i])):
                 conv = self.conv_blocks[i][j]

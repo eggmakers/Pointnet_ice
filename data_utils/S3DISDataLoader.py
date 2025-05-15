@@ -22,7 +22,8 @@ class S3DISDataset(Dataset):
         for room_name in rooms_split:
             room_path = os.path.join(data_root, room_name)
             room_data = np.load(room_path)  # xyzrgbl, N*7
-            points, labels = room_data[:, 0:3], room_data[:, 3]  # xyzrgb, N*6; l, N
+            points, labels = room_data[:, 0:4], room_data[:, 6]
+            # points, labels = room_data[:, 0:3], room_data[:, 3]  # xyzrgb, N*3; l, N
             tmp, _ = np.histogram(labels, range(14))
             labelweights += tmp
             coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
@@ -61,15 +62,25 @@ class S3DISDataset(Dataset):
             selected_point_idxs = np.random.choice(point_idxs, self.num_point, replace=True)
 
         # normalize
-        selected_points = points[selected_point_idxs, :]  # num_point * 6
-        current_points = np.zeros((self.num_point, 6))  # num_point * 9
-        current_points[:, 3] = selected_points[:, 0] / self.room_coord_max[room_idx][0]
-        current_points[:, 4] = selected_points[:, 1] / self.room_coord_max[room_idx][1]
-        current_points[:, 5] = selected_points[:, 2] / self.room_coord_max[room_idx][2]
-        selected_points[:, 0] = selected_points[:, 0] - center[0]
-        selected_points[:, 1] = selected_points[:, 1] - center[1]
-        # selected_points[:, 3:6] /= 255.0
-        current_points[:, 0:3] = selected_points
+        selected_points = points[selected_point_idxs, :]  # num_point * 4
+        #current_points = np.zeros((self.num_point, 9))  # num_point * 9
+        #current_points[:, 6] = selected_points[:, 0] / self.room_coord_max[room_idx][0]
+        #current_points[:, 7] = selected_points[:, 1] / self.room_coord_max[room_idx][1]
+        #current_points[:, 8] = selected_points[:, 2] / self.room_coord_max[room_idx][2]
+        # current_points = np.zeros((self.num_point, 6))  # num_point * 9
+        # current_points[:, 3] = selected_points[:, 0] / self.room_coord_max[room_idx][0]
+        # current_points[:, 4] = selected_points[:, 1] / self.room_coord_max[room_idx][1]
+        # current_points[:, 5] = selected_points[:, 2] / self.room_coord_max[room_idx][2]
+        #selected_points[:, 0] = selected_points[:, 0] - center[0]
+        #selected_points[:, 1] = selected_points[:, 1] - center[1]
+        selected_points[:, 0] = selected_points[:, 0] / self.room_coord_max[room_idx][0]
+        selected_points[:, 1] = selected_points[:, 1] / self.room_coord_max[room_idx][1]
+        selected_points[:, 2] = selected_points[:, 2] / self.room_coord_max[room_idx][2]
+        selected_points[:, 3:4] /= 255.0
+        # current_points[:, 0:3] = selected_points
+        #selected_points[:, 3:6] /= 255.0
+        #current_points[:, 0:6] = selected_points
+        current_points = selected_points
         current_labels = labels[selected_point_idxs]
         if self.transform is not None:
             current_points, current_labels = self.transform(current_points, current_labels)
@@ -99,8 +110,10 @@ class ScannetDatasetWholeScene():
         for file in self.file_list:
             data = np.load(root + file)
             points = data[:, :3]
-            self.scene_points_list.append(data[:, :3])
-            self.semantic_labels_list.append(data[:, 3])
+            # self.scene_points_list.append(data[:, :3])
+            # self.semantic_labels_list.append(data[:, 3])
+            self.scene_points_list.append(data[:, :4])
+            self.semantic_labels_list.append(data[:, 6])
             coord_min, coord_max = np.amin(points, axis=0)[:3], np.amax(points, axis=0)[:3]
             self.room_coord_min.append(coord_min), self.room_coord_max.append(coord_max)
         assert len(self.scene_points_list) == len(self.semantic_labels_list)
@@ -142,14 +155,17 @@ class ScannetDatasetWholeScene():
                 point_idxs = np.concatenate((point_idxs, point_idxs_repeat))
                 np.random.shuffle(point_idxs)
                 data_batch = points[point_idxs, :]
-                normlized_xyz = np.zeros((point_size, 3))
-                normlized_xyz[:, 0] = data_batch[:, 0] / coord_max[0]
-                normlized_xyz[:, 1] = data_batch[:, 1] / coord_max[1]
-                normlized_xyz[:, 2] = data_batch[:, 2] / coord_max[2]
-                data_batch[:, 0] = data_batch[:, 0] - (s_x + self.block_size / 2.0)
-                data_batch[:, 1] = data_batch[:, 1] - (s_y + self.block_size / 2.0)
-                data_batch[:, 3:6] /= 255.0
-                data_batch = np.concatenate((data_batch, normlized_xyz), axis=1)
+                #normlized_xyz = np.zeros((point_size, 3))
+                #normlized_xyz[:, 0] = data_batch[:, 0] / coord_max[0]
+                #normlized_xyz[:, 1] = data_batch[:, 1] / coord_max[1]
+                #normlized_xyz[:, 2] = data_batch[:, 2] / coord_max[2]
+                #data_batch[:, 0] = data_batch[:, 0] - (s_x + self.block_size / 2.0)
+                #data_batch[:, 1] = data_batch[:, 1] - (s_y + self.block_size / 2.0)
+                data_batch[:, 0] = data_batch[:, 0] / coord_max[0]
+                data_batch[:, 1] = data_batch[:, 1] / coord_max[1]
+                data_batch[:, 2] = data_batch[:, 2] / coord_max[2]
+                data_batch[:, 3:4] /= 255.0
+                #data_batch = np.concatenate((data_batch, normlized_xyz), axis=1)
                 label_batch = labels[point_idxs].astype(int)
                 batch_weight = self.labelweights[label_batch]
 

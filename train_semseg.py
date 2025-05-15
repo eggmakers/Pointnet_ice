@@ -36,8 +36,8 @@ for i,cat in enumerate(seg_classes.keys()):
 
 def parse_args():
     parser = argparse.ArgumentParser('Model')
-    parser.add_argument('--model', type=str, default='pointnet2_sem_seg', help='model name [default: pointnet_sem_seg]')
-    parser.add_argument('--batch_size', type=int, default=148, help='Batch Size during training [default: 16]')
+    parser.add_argument('--model', type=str, default='pointnet2_sem_seg_msg', help='model name [default: pointnet_sem_seg]')
+    parser.add_argument('--batch_size', type=int, default=100, help='Batch Size during training [default: 16]')
     parser.add_argument('--epoch',  default=128, type=int, help='Epoch to run [default: 128]')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='Initial learning rate [default: 0.001]')
     parser.add_argument('--gpu', type=str, default='0', help='GPU to use [default: GPU 0]')
@@ -192,6 +192,9 @@ def main(args):
         loss_sum = 0
         for i, data in tqdm(enumerate(trainDataLoader), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
+            if (target < 0).any() or (target >= NUM_CLASSES).any():
+                print(f"Invalid labels detected: min={target.min()}, max={target.max()}")
+                raise ValueError("Label out of bounds!")
             points = points.data.numpy()
             points[:,:, :3] = provider.rotate_point_cloud_z(points[:,:, :3])
             points = torch.Tensor(points)
@@ -239,6 +242,9 @@ def main(args):
             log_string('---- EPOCH %03d EVALUATION ----' % (global_epoch + 1))
             for i, data in tqdm(enumerate(testDataLoader), total=len(testDataLoader), smoothing=0.9):
                 points, target = data
+                if (target < 0).any() or (target >= NUM_CLASSES).any():
+                    print(f"Invalid labels detected: min={target.min()}, max={target.max()}")
+                    raise ValueError("Label out of bounds!")
                 points = points.data.numpy()
                 points = torch.Tensor(points)
                 points, target = points.float().cuda(), target.long().cuda()
@@ -269,7 +275,9 @@ def main(args):
             log_string('eval point avg class acc: %f' % (
                 np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=np.float64) + 1e-6))))
             iou_per_class_str = '------- IoU --------\n'
+            print(seg_label_to_cat)
             for l in range(NUM_CLASSES):
+                print(seg_label_to_cat[l])
                 iou_per_class_str += 'class %s weight: %.3f, IoU: %.3f \n' % (
                     seg_label_to_cat[l] + ' ' * (14 - len(seg_label_to_cat[l])), labelweights[l - 1],
                     total_correct_class[l] / float(total_iou_deno_class[l]))
