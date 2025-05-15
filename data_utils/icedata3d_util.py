@@ -7,7 +7,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 
-DATA_PATH = os.path.join(ROOT_DIR, 'data','s3dis')
+DATA_PATH = os.path.join(ROOT_DIR, 'data_ice','AREA_ALL')
+# DATA_PATH = os.path.join(ROOT_DIR, 'data_ice','AREA_ALL')
 g_classes = [x.rstrip() for x in open(os.path.join(BASE_DIR, 'meta/ice_class_names.txt'))]
 print('g_classes=. ',g_classes)
 g_class2label = {cls: i for i,cls in enumerate(g_classes)}

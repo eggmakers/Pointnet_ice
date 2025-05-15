@@ -301,7 +301,7 @@ class PointNetSetAbstractionMsg(nn.Module):
                 grouped_points = grouped_xyz
             # 分组操作代码(上)
             grouped_xyz = grouped_points[:, :3, :, :]            # [B, 3, K, S]
-            grouped_rrr = grouped_points[:, 3:6, :, :]           # [B, 3, K, S] 三通道反射率
+            grouped_rrr = grouped_points[:, 3:4, :, :]           # [B, 3, K, S] 三通道反射率
             if self.use_multi_ref_attn:
                 grouped_points = self.attn_blocks[i](
                     grouped_xyz - new_xyz.view(B, S, 1, 3).permute(0,3,2,1), # 坐标差
